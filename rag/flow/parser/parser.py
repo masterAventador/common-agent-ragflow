@@ -832,7 +832,7 @@ class Parser(ProcessBase):
         conf = self._param.setups["doc"]
         self.set_output("output_format", conf["output_format"])
 
-        from tika import parser as tika_parser
+        from rag.utils import tika_parser
 
         parsed = tika_parser.from_buffer(io.BytesIO(blob))
         sections = [line for line in parsed["content"].split("\n") if line]
@@ -853,7 +853,7 @@ class Parser(ProcessBase):
         if re.search(r"\.doc$", name, re.IGNORECASE):
             self.set_output("file", {**kwargs.get("file", {}), "outlines": []})
             try:
-                from tika import parser as tika_parser
+                from rag.utils import tika_parser
             except Exception as e:
                 msg = f"tika not available: {e}. Unsupported .doc parsing."
                 self.callback(0.8, msg)

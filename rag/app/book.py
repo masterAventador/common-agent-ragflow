@@ -139,7 +139,7 @@ def chunk(filename, binary=None, from_page=0, to_page=MAXIMUM_PAGE_NUMBER, lang=
     elif re.search(r"\.doc$", filename, re.IGNORECASE):
         callback(0.1, "Start to parse.")
         try:
-            from tika import parser as tika_parser
+            from rag.utils import tika_parser
         except Exception as e:
             callback(0.8, f"tika not available: {e}. Unsupported .doc parsing.")
             logging.warning(f"tika not available: {e}. Unsupported .doc parsing for {filename}.")

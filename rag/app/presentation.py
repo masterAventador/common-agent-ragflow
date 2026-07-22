@@ -156,7 +156,7 @@ def chunk(filename, binary=None, from_page=0, to_page=MAXIMUM_PAGE_NUMBER, lang=
                 callback(0.1, "python-pptx failed, trying tika as fallback")
 
             try:
-                from tika import parser as tika_parser
+                from rag.utils import tika_parser
             except Exception as tika_error:
                 error_msg = f"tika not available: {tika_error}. Unsupported .ppt/.pptx parsing."
                 if callback:

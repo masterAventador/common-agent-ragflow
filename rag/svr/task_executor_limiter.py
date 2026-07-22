@@ -19,10 +19,11 @@ from common.asyncio_utils import LoopLocalSemaphore
 
 MAX_CONCURRENT_TASKS = int(os.environ.get("MAX_CONCURRENT_TASKS", "5"))
 MAX_CONCURRENT_CHUNK_BUILDERS = int(os.environ.get("MAX_CONCURRENT_CHUNK_BUILDERS", "1"))
+MAX_CONCURRENT_EMBEDDINGS = int(os.environ.get("MAX_CONCURRENT_EMBEDDINGS", "1"))
 MAX_CONCURRENT_MINIO = int(os.environ.get("MAX_CONCURRENT_MINIO", "10"))
 
 task_limiter = LoopLocalSemaphore(MAX_CONCURRENT_TASKS)
 chunk_limiter = LoopLocalSemaphore(MAX_CONCURRENT_CHUNK_BUILDERS)
-embed_limiter = LoopLocalSemaphore(MAX_CONCURRENT_CHUNK_BUILDERS)
+embed_limiter = LoopLocalSemaphore(MAX_CONCURRENT_EMBEDDINGS)
 minio_limiter = LoopLocalSemaphore(MAX_CONCURRENT_MINIO)
 kg_limiter = LoopLocalSemaphore(2)

@@ -113,10 +113,10 @@ class _Query:
         return list(self.rows)
 
     def scalars(self):
-        return self
+        return (row["id"] for row in self.rows)
 
     def iterator(self):
-        return iter(row["id"] for row in self.rows)
+        return iter(SimpleNamespace(**row) for row in self.rows)
 
     def __iter__(self):
         return iter(SimpleNamespace(**row) for row in self.rows)

@@ -215,7 +215,7 @@ class DocumentService(CommonService):
         query = cls.model.select(cls.model.id).where(cls.model.kb_id == kb_id)
         if doc_ids is not None:
             query = query.where(cls.model.id.in_(doc_ids))
-        return list(query.scalars().iterator())
+        return [row.id for row in query.iterator()]
 
     @classmethod
     @DB.connection_context()

@@ -45,7 +45,7 @@ class _FakeField:
         return self
 
     def in_(self, other):
-        return self
+        return ("id_in", list(other))
 
     def not_in(self, other):
         return self
@@ -60,12 +60,20 @@ class _FakeQuery:
         return self
 
     def where(self, *args, **kwargs):
+        for condition in args:
+            if isinstance(condition, tuple) and len(condition) == 2 and condition[0] == "id_in":
+                allowed = set(condition[1])
+                self._all = [doc for doc in self._all if doc["id"] in allowed]
+                self._current = [doc for doc in self._current if doc["id"] in allowed]
         return self
 
     def order_by(self, *args, **kwargs):
         return self
 
     def count(self):
+        return len(self._all)
+
+    def scalar(self):
         return len(self._all)
 
     def paginate(self, page, page_size):
@@ -77,6 +85,9 @@ class _FakeQuery:
 
     def dicts(self):
         return list(self._current)
+
+    def __iter__(self):
+        return iter(SimpleNamespace(**doc) for doc in self._current)
 
 
 @pytest.fixture

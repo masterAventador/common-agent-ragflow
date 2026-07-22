@@ -522,6 +522,7 @@ def run_index(dataset_id: str, tenant_id: str, index_type: str):
         run_status=[],
         types=[],
         suffix=[],
+        calculate_total=False,
     )
     if not documents:
         return False, f"No documents in Dataset {dataset_id}"
@@ -895,6 +896,7 @@ def run_embedding(dataset_id: str, tenant_id: str):
         run_status=[],
         types=[],
         suffix=[],
+        calculate_total=False,
     )
     if not documents:
         return False, f"No documents in Dataset {dataset_id}"

@@ -1163,13 +1163,15 @@ async def delete_documents(tenant_id, dataset_id):
 
         if len(doc_ids) > 0 and delete_all:
             return get_error_data_result(message=f"should not provide both doc ids and delete_all(true), dataset: {dataset_id}. ")
-        if delete_all:
-            doc_ids = [doc.id for doc in DocumentService.query(kb_id=dataset_id)]
 
-        dataset_doc_ids = {doc.id for doc in DocumentService.query(kb_id=dataset_id)}
-        invalid_ids = [doc_id for doc_id in doc_ids if doc_id not in dataset_doc_ids]
-        if invalid_ids:
-            return get_error_data_result(message=f"These documents do not belong to dataset {dataset_id} or Document not found: {', '.join(invalid_ids)}")
+        owned_doc_ids = DocumentService.get_ids_by_kb_id(dataset_id, None if delete_all else doc_ids)
+        if delete_all:
+            doc_ids = owned_doc_ids
+        else:
+            owned_doc_id_set = set(owned_doc_ids)
+            invalid_ids = [doc_id for doc_id in doc_ids if doc_id not in owned_doc_id_set]
+            if invalid_ids:
+                return get_error_data_result(message=f"These documents do not belong to dataset {dataset_id} or Document not found: {', '.join(invalid_ids)}")
 
         # make sure each id is unique
         unique_doc_ids, duplicate_messages = check_duplicate_ids(doc_ids, "document")

@@ -15,6 +15,7 @@
 
 import importlib
 import os
+from pathlib import Path
 from unittest.mock import patch
 
 
@@ -37,3 +38,16 @@ def test_embedding_concurrency_is_configured_independently_from_chunk_builders()
             assert limiter.embed_limiter._value == 6
     finally:
         importlib.reload(task_executor_limiter)
+
+
+def test_docker_profile_uses_benchmarked_bounded_write_limits():
+    repository_root = Path(__file__).resolve().parents[4]
+    environment = (repository_root / "docker/.env").read_text(encoding="utf-8")
+
+    assert "DOC_BULK_SIZE=${DOC_BULK_SIZE:-32}" in environment
+    assert "MAX_CONCURRENT_TASKS=${MAX_CONCURRENT_TASKS:-5}" in environment
+    assert (
+        "MAX_CONCURRENT_CHUNK_BUILDERS=${MAX_CONCURRENT_CHUNK_BUILDERS:-1}"
+        in environment
+    )
+    assert "MAX_CONCURRENT_EMBEDDINGS=${MAX_CONCURRENT_EMBEDDINGS:-8}" in environment

@@ -123,7 +123,16 @@ The [.env](./.env) file contains important environment variables for Docker.
 ### Doc bulk size
 
 - `DOC_BULK_SIZE`
-  The number of document chunks processed in a single batch during document parsing. Defaults to `4`.
+  The number of document chunks sent to the document store in one write. The common-agent Docker profile defaults to the benchmarked bounded value `32`.
+
+### Document parsing concurrency
+
+- `MAX_CONCURRENT_TASKS`
+  The maximum number of document parsing tasks processed concurrently. Defaults to `5`.
+- `MAX_CONCURRENT_CHUNK_BUILDERS`
+  The maximum number of concurrent chunk-building sections. Defaults to `1`.
+- `MAX_CONCURRENT_EMBEDDINGS`
+  The maximum number of concurrent embedding sections, independently of chunk building. The common-agent Docker profile defaults to the benchmarked value `8`; reduce it when the embedding provider has a lower rate limit or the API container has materially less than 5 GiB of memory.
 
 ### Embedding batch size
 

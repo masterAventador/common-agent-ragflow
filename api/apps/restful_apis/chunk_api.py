@@ -47,7 +47,7 @@ from api.utils.api_utils import (
     get_result,
     server_error_response,
 )
-from api.utils.pagination_utils import validate_rest_api_page_size
+from api.utils.pagination_utils import validate_rest_api_page_size, validate_rest_api_top_k
 from api.utils.image_utils import store_chunk_image
 from api.utils.reference_metadata_utils import (
     enrich_chunks_with_document_metadata,
@@ -357,8 +357,10 @@ async def retrieval_test(tenant_id):
     similarity_threshold = float(req.get("similarity_threshold", 0.2))
     vector_similarity_weight = float(req.get("vector_similarity_weight", 0.3))
     top = int(req.get("top_k", 1024))
-    if top <= 0:
-        return get_error_data_result("`top_k` must be greater than 0")
+    try:
+        top = validate_rest_api_top_k(top)
+    except ValueError as error:
+        return get_error_data_result(str(error))
     highlight_val = req.get("highlight", None)
     if highlight_val is None:
         highlight = False

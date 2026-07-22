@@ -31,6 +31,7 @@ from api.db.joint_services.tenant_model_service import get_tenant_default_model_
 from common.metadata_utils import meta_filter, convert_conditions
 from api.apps import login_required
 from api.utils.api_utils import add_tenant_id_to_kwargs, build_error_result, get_request_json, get_json_result
+from api.utils.pagination_utils import validate_rest_api_top_k
 from rag.app.tag import label_question
 from common.constants import RetCode, LLMType
 from common import settings
@@ -105,6 +106,7 @@ def _parse_retrieval_options(retrieval_setting):
         top = int(retrieval_setting.get("top_k", 1024))
     except (TypeError, ValueError):
         raise ValueError("top_k must be integer and score_threshold must be numeric")
+    top = validate_rest_api_top_k(top)
     return retrieval_setting, similarity_threshold, top
 
 

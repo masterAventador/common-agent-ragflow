@@ -49,6 +49,7 @@ from api.utils.reference_metadata_utils import (
     enrich_chunks_with_document_metadata,
     resolve_reference_metadata_preferences,
 )
+from api.utils.pagination_utils import validate_rest_api_top_k
 
 logger = logging.getLogger(__name__)
 
@@ -380,8 +381,10 @@ async def retrieval_test_embedded(tenant_id=None):
     vector_similarity_weight = float(req.get("vector_similarity_weight", 0.3))
     use_kg = req.get("use_kg", False)
     top = int(req.get("top_k", 1024))
-    if top <= 0:
-        return get_error_data_result("`top_k` must be greater than 0")
+    try:
+        top = validate_rest_api_top_k(top)
+    except ValueError as error:
+        return get_error_data_result(str(error))
     langs = req.get("cross_languages", [])
     rerank_id = req.get("rerank_id", "")
     if not tenant_id:
@@ -423,6 +426,11 @@ async def retrieval_test_embedded(tenant_id=None):
             if meta_data_filter.get("method") in ["auto", "semi_auto"]:
                 chat_model_config = await thread_pool_exec(get_tenant_default_model_by_type, tenant_id, LLMType.CHAT)
                 chat_mdl = LLMBundle(tenant_id, chat_model_config)
+
+        try:
+            top = validate_rest_api_top_k(top)
+        except ValueError as error:
+            return get_error_data_result(str(error))
 
         if meta_data_filter:
             local_doc_ids = await apply_meta_data_filter(

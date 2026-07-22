@@ -21,7 +21,12 @@ from unittest.mock import Mock
 import pytest
 from pydantic import ValidationError
 
-from api.utils.pagination_utils import REST_API_MAX_PAGE_SIZE, validate_rest_api_page_size
+from api.utils.pagination_utils import (
+    REST_API_MAX_PAGE_SIZE,
+    REST_API_MAX_TOP_K,
+    validate_rest_api_page_size,
+    validate_rest_api_top_k,
+)
 from api.utils.validation_utils import (
     ListDatasetReq,
     ListFileReq,
@@ -44,6 +49,15 @@ def test_rest_api_page_size_rejects_values_above_100():
         ListDatasetReq(page_size=REST_API_MAX_PAGE_SIZE + 1)
     with pytest.raises(ValidationError, match="page_size must be less than or equal to 100"):
         ListFileReq(page_size=REST_API_MAX_PAGE_SIZE + 1)
+
+
+def test_rest_api_top_k_is_positive_and_bounded():
+    assert validate_rest_api_top_k(1) == 1
+    assert validate_rest_api_top_k(REST_API_MAX_TOP_K) == REST_API_MAX_TOP_K
+    with pytest.raises(ValueError, match="`top_k` must be greater than 0"):
+        validate_rest_api_top_k(0)
+    with pytest.raises(ValueError, match="`top_k` must be less than or equal to 2048"):
+        validate_rest_api_top_k(REST_API_MAX_TOP_K + 1)
 
 
 def test_validate_immutable_fields_no_changes():

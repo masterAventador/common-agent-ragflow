@@ -15,6 +15,7 @@
 #
 
 REST_API_MAX_PAGE_SIZE = 100
+REST_API_MAX_TOP_K = 2048
 
 
 def validate_rest_api_page_size(page_size: int) -> int:
@@ -22,3 +23,12 @@ def validate_rest_api_page_size(page_size: int) -> int:
     if page_size > REST_API_MAX_PAGE_SIZE:
         raise ValueError(f"page_size must be less than or equal to {REST_API_MAX_PAGE_SIZE}")
     return page_size
+
+
+def validate_rest_api_top_k(top_k: int) -> int:
+    """Keep public retrieval candidate pools inside the supported ES boundary."""
+    if top_k <= 0:
+        raise ValueError("`top_k` must be greater than 0")
+    if top_k > REST_API_MAX_TOP_K:
+        raise ValueError(f"`top_k` must be less than or equal to {REST_API_MAX_TOP_K}")
+    return top_k

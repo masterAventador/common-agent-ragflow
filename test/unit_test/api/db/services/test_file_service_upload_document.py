@@ -14,11 +14,13 @@
 #  limitations under the License.
 #
 import importlib.util
+import inspect
 import socket
 import sys
 import types
 import warnings
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -80,6 +82,33 @@ class _DummyUploadFile:
 
 def _unwrapped_upload_document():
     return FileService.upload_document.__func__.__wrapped__
+
+
+def _unwrapped_get_root_folder():
+    return FileService.get_root_folder.__func__.__wrapped__
+
+
+def test_root_folder_lookup_uses_indexable_constants_instead_of_column_comparison():
+    source = inspect.getsource(_unwrapped_get_root_folder())
+
+    assert "parent_id == cls.model.id" not in source
+    assert "cls.model.name == \"/\"" in source
+    assert "cls.model.type == FileType.FOLDER.value" in source
+
+
+def test_root_folder_lookup_rejects_a_nested_folder_named_slash(monkeypatch):
+    nested = SimpleNamespace(id="nested", parent_id="parent", to_dict=lambda: {"id": "nested"})
+    root = SimpleNamespace(id="root", parent_id="root", to_dict=lambda: {"id": "root"})
+    model = MagicMock()
+    model.select.return_value.where.return_value.order_by.return_value = [nested, root]
+    save = MagicMock()
+    monkeypatch.setattr(FileService, "model", model)
+    monkeypatch.setattr(FileService, "save", save)
+
+    result = _unwrapped_get_root_folder()(FileService, "tenant-1")
+
+    assert result == {"id": "root"}
+    save.assert_not_called()
 
 
 @pytest.mark.p2

@@ -241,8 +241,18 @@ class FileService(CommonService):
         #     tenant_id: Tenant ID
         # Returns:
         #     Root folder dictionary
-        for file in cls.model.select().where((cls.model.tenant_id == tenant_id), (cls.model.parent_id == cls.model.id)):
-            return file.to_dict()
+        candidates = (
+            cls.model.select()
+            .where(
+                cls.model.tenant_id == tenant_id,
+                cls.model.name == "/",
+                cls.model.type == FileType.FOLDER.value,
+            )
+            .order_by(cls.model.create_time.asc())
+        )
+        for file in candidates:
+            if file.parent_id == file.id:
+                return file.to_dict()
 
         file_id = get_uuid()
         file = {

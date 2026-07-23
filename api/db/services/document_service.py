@@ -126,49 +126,55 @@ class DocumentService(CommonService):
     @DB.connection_context()
     def get_by_kb_id(cls, kb_id, page_number, items_per_page, orderby, desc, keywords, run_status, types, suffix, name=None, doc_ids=None, return_empty_metadata=False):
         fields = cls.get_cls_model_fields()
-        if keywords:
-            docs = (
-                cls.model.select(*[*fields, UserCanvas.title.alias("pipeline_name"), User.nickname])
-                .join(File2Document, on=(File2Document.document_id == cls.model.id))
-                .join(File, on=(File.id == File2Document.file_id))
-                .join(UserCanvas, on=(cls.model.pipeline_id == UserCanvas.id), join_type=JOIN.LEFT_OUTER)
-                .join(User, on=(cls.model.created_by == User.id), join_type=JOIN.LEFT_OUTER)
-                .where((cls.model.kb_id == kb_id), (fn.LOWER(cls.model.name).contains(keywords.lower())))
-            )
-        else:
-            docs = (
-                cls.model.select(*[*fields, UserCanvas.title.alias("pipeline_name"), User.nickname])
-                .join(File2Document, on=(File2Document.document_id == cls.model.id))
-                .join(UserCanvas, on=(cls.model.pipeline_id == UserCanvas.id), join_type=JOIN.LEFT_OUTER)
-                .join(File, on=(File.id == File2Document.file_id))
-                .join(User, on=(cls.model.created_by == User.id), join_type=JOIN.LEFT_OUTER)
-                .where(cls.model.kb_id == kb_id)
-            )
-        if doc_ids is not None:
-            docs = docs.where(cls.model.id.in_(doc_ids))
-        if run_status:
-            docs = docs.where(cls.model.run.in_(run_status))
-        if types:
-            docs = docs.where(cls.model.type.in_(types))
-        if suffix:
-            docs = docs.where(cls.model.suffix.in_(suffix))
-        if name:
-            docs = docs.where(cls.model.name == name)
 
+        doc_ids_with_metadata = None
         if return_empty_metadata:
             metadata_map = DocMetadataService.get_metadata_for_documents(None, kb_id)
             doc_ids_with_metadata = set(metadata_map.keys())
-            if doc_ids_with_metadata:
-                docs = docs.where(cls.model.id.not_in(doc_ids_with_metadata))
 
-        count = docs.count()
-        if desc:
-            docs = docs.order_by(cls.model.getter_by(orderby).desc())
-        else:
-            docs = docs.order_by(cls.model.getter_by(orderby).asc())
+        def apply_filters(query):
+            if keywords:
+                query = query.where(fn.LOWER(cls.model.name).contains(keywords.lower()))
+            if doc_ids is not None:
+                query = query.where(cls.model.id.in_(doc_ids))
+            if run_status:
+                query = query.where(cls.model.run.in_(run_status))
+            if types:
+                query = query.where(cls.model.type.in_(types))
+            if suffix:
+                query = query.where(cls.model.suffix.in_(suffix))
+            if name:
+                query = query.where(cls.model.name == name)
+            if doc_ids_with_metadata:
+                query = query.where(cls.model.id.not_in(doc_ids_with_metadata))
+            return query
+
+        count_query = apply_filters(cls.model.select(fn.COUNT(cls.model.id)).where(cls.model.kb_id == kb_id))
+        count = int(count_query.scalar() or 0)
+
+        order_field = cls.model.getter_by(orderby)
+        order_expression = order_field.desc() if desc else order_field.asc()
 
         if page_number and items_per_page:
-            docs = docs.paginate(page_number, items_per_page)
+            page_query = apply_filters(cls.model.select(cls.model.id).where(cls.model.kb_id == kb_id))
+            page_ids = [row.id for row in page_query.order_by(order_expression).paginate(page_number, items_per_page)]
+            if not page_ids:
+                return [], count
+        else:
+            page_ids = None
+
+        # File mapping rows do not contribute selected columns or filters here.
+        # Keep only the display joins and apply them after count and pagination.
+        docs = (
+            cls.model.select(*[*fields, UserCanvas.title.alias("pipeline_name"), User.nickname])
+            .join(UserCanvas, on=(cls.model.pipeline_id == UserCanvas.id), join_type=JOIN.LEFT_OUTER)
+            .join(User, on=(cls.model.created_by == User.id), join_type=JOIN.LEFT_OUTER)
+            .where(cls.model.kb_id == kb_id)
+        )
+        docs = apply_filters(docs)
+        if page_ids is not None:
+            docs = docs.where(cls.model.id.in_(page_ids))
+        docs = docs.order_by(order_expression)
 
         docs_list = list(docs.dicts())
         if return_empty_metadata:
@@ -180,6 +186,17 @@ class DocumentService(CommonService):
             for doc in docs_list:
                 doc["meta_fields"] = metadata_map.get(doc["id"], {})
         return docs_list, count
+
+    @classmethod
+    @DB.connection_context()
+    def get_ids_by_kb_id(cls, kb_id, doc_ids=None):
+        if doc_ids is not None and not doc_ids:
+            return []
+
+        query = cls.model.select(cls.model.id).where(cls.model.kb_id == kb_id)
+        if doc_ids is not None:
+            query = query.where(cls.model.id.in_(doc_ids))
+        return [row.id for row in query.iterator()]
 
     @classmethod
     @DB.connection_context()

@@ -83,6 +83,7 @@ from api.db.joint_services.tenant_model_service import get_tenant_default_model_
 from common.versions import get_ragflow_version
 from api.db.db_models import close_connection
 from rag.app import laws, paper, presentation, manual, qa, table, book, resume, picture, naive, one, audio, email, tag
+from rag.app.embedded_media import append_embedded_media_chunks
 from rag.nlp import search, rag_tokenizer, add_positions
 from rag.advanced_rag.knowlege_compile.raptor import (
     RAPTOR_TREE_BUILDER,
@@ -346,6 +347,17 @@ async def build_chunks(task, progress_callback):
                 kb_id=task["kb_id"],
                 parser_config=parser_config_for_chunk,
                 tenant_id=task["tenant_id"],
+            )
+            # 内嵌音视频对所有切片器一视同仁，逻辑全部在 rag.app.embedded_media 内，默认关闭。
+            cks = await thread_pool_exec(
+                append_embedded_media_chunks,
+                cks,
+                task["name"],
+                binary,
+                tenant_id=task["tenant_id"],
+                lang=task_language,
+                callback=progress_callback,
+                parser_config=parser_config_for_chunk,
             )
         logging.info("Chunking({}) {}/{} done".format(timer() - st, task["location"], task["name"]))
     except TaskCanceledException:

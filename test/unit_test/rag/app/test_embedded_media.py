@@ -202,3 +202,182 @@ def test_identical_media_is_returned_once():
 def test_non_container_input_returns_empty():
     assert _extract(b"plain text, not a container") == []
     assert _extract(b"") == []
+
+
+# --- M2：把提取到的媒体切片并挂到父文档上 -------------------------------------
+
+
+def _fake_media_chunker(answer_by_name: dict[str, str], failing: tuple[str, ...] = ()):
+    """替身切片器，签名与 rag.app.picture.chunk 一致。
+
+    真实切片器会调用百炼视频理解，且 rag.app.picture 模块级就构造 OCR() 触发模型下载，
+    单元测试既不能联网也不该等下载，因此这里注入替身；真实链路由 M7 验收。
+    """
+
+    def _chunker(filename, binary, tenant_id, lang, callback=None, **kwargs):
+        if filename in failing:
+            raise RuntimeError("模型调用失败")
+        return [
+            {
+                "docnm_kwd": filename,
+                "title_tks": filename,
+                "doc_type_kwd": "video",
+                "content_with_weight": answer_by_name[filename],
+                "content_ltks": answer_by_name[filename],
+            }
+        ]
+
+    return _chunker
+
+
+def _chunk_media(binary, parent_name="季度汇报.pptx", enabled=True, chunker=None, callback=None):
+    from rag.app.embedded_media import EMBEDDED_MEDIA_ENABLED_KEY, chunk_embedded_media
+
+    return chunk_embedded_media(
+        parent_name,
+        binary,
+        tenant_id="t-1",
+        lang="Chinese",
+        callback=callback,
+        parser_config={EMBEDDED_MEDIA_ENABLED_KEY: True} if enabled else {},
+        media_chunker=chunker,
+    )
+
+
+def test_embedded_media_parsing_is_disabled_by_default():
+    """整段视频要送模型，成本不可忽略，未显式开启不得触发。"""
+    out = _chunk_media(_ooxml({"ppt/media/media1.mp4": MP4}), enabled=False)
+
+    assert out == []
+
+
+def test_each_embedded_video_produces_one_chunk():
+    binary = _ooxml({"ppt/media/media1.mp4": MP4, "ppt/media/media2.mov": MOV})
+    chunker = _fake_media_chunker({"media1.mp4": "讲解了季度目标", "media2.mov": "演示了操作流程"})
+
+    out = _chunk_media(binary, chunker=chunker)
+
+    assert len(out) == 2
+
+
+def test_chunk_is_attributed_to_the_parent_document():
+    """引用里必须显示父文档名，不能冒出 media1.mp4 这种用户没上传过的文件名。"""
+    chunker = _fake_media_chunker({"media1.mp4": "讲解了季度目标"})
+
+    out = _chunk_media(_ooxml({"ppt/media/media1.mp4": MP4}), parent_name="季度汇报.pptx", chunker=chunker)
+
+    assert out[0]["docnm_kwd"] == "季度汇报.pptx"
+
+
+def test_chunk_content_marks_which_embedded_media_it_came_from():
+    chunker = _fake_media_chunker({"media1.mp4": "讲解了季度目标"})
+
+    out = _chunk_media(_ooxml({"ppt/media/media1.mp4": MP4}), chunker=chunker)
+
+    assert out[0]["content_with_weight"].startswith("【内嵌视频 media1.mp4】")
+    assert "讲解了季度目标" in out[0]["content_with_weight"]
+
+
+def test_chunk_tokens_stay_consistent_with_marked_content():
+    """只改 content_with_weight 而不重算分词，检索命中的正文与展示的正文会不一致。
+
+    不断言具体切分结果——分词器怎么切 `media1.mp4` 是它的实现细节；这里只要求标记和原始
+    回答都进入了分词字段。
+    """
+    chunker = _fake_media_chunker({"media1.mp4": "讲解了季度目标"})
+
+    out = _chunk_media(_ooxml({"ppt/media/media1.mp4": MP4}), chunker=chunker)
+
+    tokens = out[0]["content_ltks"]
+    assert "media1" in tokens
+    assert "季度" in tokens
+
+
+def test_chunk_keeps_video_doc_type_for_downstream_marking():
+    chunker = _fake_media_chunker({"media1.mp4": "讲解了季度目标"})
+
+    out = _chunk_media(_ooxml({"ppt/media/media1.mp4": MP4}), chunker=chunker)
+
+    assert out[0]["doc_type_kwd"] == "video"
+
+
+def test_one_media_failure_does_not_drop_the_others():
+    binary = _ooxml({"ppt/media/media1.mp4": MP4, "ppt/media/media2.mov": MOV})
+    chunker = _fake_media_chunker({"media2.mov": "演示了操作流程"}, failing=("media1.mp4",))
+
+    out = _chunk_media(binary, chunker=chunker)
+
+    assert len(out) == 1
+    assert "演示了操作流程" in out[0]["content_with_weight"]
+
+
+def test_media_failure_is_reported_instead_of_silently_dropped():
+    """当前上游对内嵌文件失败只 log 不提示，用户看到解析成功却少了内容。"""
+    messages = []
+    chunker = _fake_media_chunker({}, failing=("media1.mp4",))
+
+    def _record(*args, **kwargs):
+        messages.append(" ".join(str(value) for value in (*args, *kwargs.values())))
+
+    _chunk_media(_ooxml({"ppt/media/media1.mp4": MP4}), chunker=chunker, callback=_record)
+
+    assert any("media1.mp4" in message for message in messages)
+
+
+def test_container_without_media_produces_no_chunk():
+    assert _chunk_media(_ooxml({"ppt/media/image1.png": PNG})) == []
+    assert _chunk_media(b"plain text") == []
+
+
+# --- M2：与主文档 chunk 列表的合并（task_executor hook 的全部逻辑） -------------
+
+
+def _append(chunks, binary, enabled=True, chunker=None):
+    from rag.app.embedded_media import EMBEDDED_MEDIA_ENABLED_KEY, append_embedded_media_chunks
+
+    return append_embedded_media_chunks(
+        chunks,
+        "季度汇报.pptx",
+        binary,
+        tenant_id="t-1",
+        lang="Chinese",
+        callback=None,
+        parser_config={EMBEDDED_MEDIA_ENABLED_KEY: True} if enabled else {},
+        media_chunker=chunker,
+    )
+
+
+def test_embedded_chunks_are_appended_after_the_main_document_chunks():
+    """必须追加到尾部：task_executor 用 cks[0] 取 PDF 大纲，插到前面会把大纲丢掉。"""
+    main = [{"content_with_weight": "正文一", "__outline__": [("章节", 1)]}, {"content_with_weight": "正文二"}]
+    chunker = _fake_media_chunker({"media1.mp4": "讲解了季度目标"})
+
+    out = _append(main, _ooxml({"ppt/media/media1.mp4": MP4}), chunker=chunker)
+
+    assert len(out) == 3
+    assert out[0]["__outline__"] == [("章节", 1)]
+    assert out[1]["content_with_weight"] == "正文二"
+    assert out[2]["content_with_weight"].startswith("【内嵌视频 media1.mp4】")
+
+
+def test_main_chunks_are_returned_untouched_when_disabled():
+    main = [{"content_with_weight": "正文一"}]
+
+    out = _append(main, _ooxml({"ppt/media/media1.mp4": MP4}), enabled=False)
+
+    assert out == main
+
+
+def test_main_chunks_are_returned_untouched_without_embedded_media():
+    main = [{"content_with_weight": "正文一"}]
+
+    assert _append(main, _ooxml({"ppt/media/image1.png": PNG})) == main
+
+
+def test_empty_main_chunks_still_receive_embedded_media():
+    """PDF 正文为空但内嵌了视频时，不能因为主列表为空就整份丢弃。"""
+    chunker = _fake_media_chunker({"media1.mp4": "讲解了季度目标"})
+
+    out = _append([], _ooxml({"ppt/media/media1.mp4": MP4}), chunker=chunker)
+
+    assert len(out) == 1

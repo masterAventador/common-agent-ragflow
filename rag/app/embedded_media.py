@@ -34,6 +34,9 @@ MEDIA_EXTS = VIDEO_EXTS + AUDIO_EXTS
 # 真实 PowerPoint / WPS 演示把视频原样写进 <part>/media/，Word 与 Excel 同构。
 OOXML_MEDIA_DIRS = ("word/media/", "xl/media/", "ppt/media/")
 
+# 内嵌媒体解析的开关键，默认关闭：整段视频要送多模态模型，成本不可忽略。
+EMBEDDED_MEDIA_ENABLED_KEY = "parse_embedded_media"
+
 _ZIP_MAGIC = (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")
 _PDF_MAGIC = b"%PDF"
 
@@ -197,3 +200,84 @@ def extract_embedded_media(binary: bytes) -> list[tuple[str, bytes]]:
     elif head.startswith(_PDF_MAGIC):
         _collect_from_pdf(bytes(binary), collector)
     return collector.items
+
+
+def _media_label(name: str) -> str:
+    return "内嵌视频" if name.lower().endswith(VIDEO_EXTS) else "内嵌音频"
+
+
+def _notify(callback, message: str) -> None:
+    logging.warning("[embedded_media] %s", message)
+    if callback:
+        try:
+            callback(msg=message)
+        except Exception:
+            logging.warning("[embedded_media] 进度回调失败")
+
+
+def _resolve_media_chunker():
+    """延迟导入真实切片器。
+
+    `rag.app.picture` 模块级构造 OCR()，导入即触发模型下载，因此不能在本模块顶部导入。
+    """
+    from rag.app.picture import chunk as picture_chunk
+
+    return picture_chunk
+
+
+def chunk_embedded_media(
+    filename: str,
+    binary: bytes,
+    tenant_id: str,
+    lang: str = "Chinese",
+    callback=None,
+    parser_config: dict | None = None,
+    media_chunker=None,
+    **kwargs,
+) -> list[dict]:
+    """提取容器内嵌的音视频并切片，返回可直接追加到父文档 chunk 列表的结果。
+
+    产出的 chunk 归属父文档：`docnm_kwd` 用父文档名而不是内嵌文件名，否则引用里会冒出用户
+    从未上传过的 `media1.mp4`。内容加 `【内嵌视频 xxx】` 前缀并重新分词，保证检索命中的正文
+    和展示的正文一致。
+
+    默认关闭：整段视频要送多模态模型，成本不可忽略，必须由 `parser_config` 显式开启。
+    单个媒体失败不影响其它媒体，也不阻断父文档解析，但必须通过 callback 让用户看见。
+    """
+    if not (parser_config or {}).get(EMBEDDED_MEDIA_ENABLED_KEY):
+        return []
+
+    media = extract_embedded_media(binary)
+    if not media:
+        return []
+
+    chunker = media_chunker or _resolve_media_chunker()
+    from rag.nlp import tokenize
+
+    is_english = lang.lower() == "english"
+    chunks: list[dict] = []
+    for name, payload in media:
+        try:
+            produced = chunker(name, payload, tenant_id, lang, callback=callback, parser_config=parser_config, **kwargs) or []
+        except Exception as e:
+            _notify(callback, f"{_media_label(name)} {name} 解析失败，已跳过：{e}")
+            continue
+        for chunk in produced:
+            chunk["docnm_kwd"] = filename
+            marked = f"【{_media_label(name)} {name}】\n{chunk.get('content_with_weight', '')}"
+            tokenize(chunk, marked, is_english, language=lang)
+            chunks.append(chunk)
+    return chunks
+
+
+def append_embedded_media_chunks(chunks: list[dict], filename: str, binary: bytes, **kwargs) -> list[dict]:
+    """把内嵌媒体的 chunk 追加到主文档 chunk 列表尾部并返回新列表。
+
+    这是 `task_executor` 侧需要的全部逻辑，放在这里是为了让上游文件只留一行调用。
+
+    追加到尾部而不是插到前面：`task_executor` 用 `cks[0]` 取 PDF 大纲，顺序一变大纲就丢了。
+    """
+    embedded = chunk_embedded_media(filename, binary, **kwargs)
+    if not embedded:
+        return chunks
+    return [*chunks, *embedded]

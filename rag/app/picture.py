@@ -30,12 +30,10 @@ from common.constants import LLMType
 from common.parser_config_utils import normalize_layout_recognizer
 from common.string_utils import clean_markdown_block
 from deepdoc.vision import OCR
+from rag.app.embedded_media import VIDEO_EXTS
 from rag.nlp import attach_media_context, rag_tokenizer, tokenize
 
 ocr = OCR()
-
-# Gemini supported MIME types
-VIDEO_EXTS = [".mp4", ".mov", ".avi", ".flv", ".mpeg", ".mpg", ".webm", ".wmv", ".3gp", ".3gpp", ".mkv"]
 
 
 def chunk(filename, binary, tenant_id, lang, callback=None, **kwargs):
